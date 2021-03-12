@@ -1,0 +1,28 @@
+pacman::p_load(
+	magrittr, 
+	tidyverse,
+	data.table,
+	mvabund,
+	gllvm,
+	DataExplorer
+)
+
+pacman::p_load(
+	vegan,
+	BiodiversityR,
+	MASS,
+	vegan3d,
+	here,
+	FD,
+	nlme,
+	lmerTest,
+	car,
+	lattice,
+	plyr,
+	gridExtra,
+	RColorBrewer,
+	Rmisc,
+	mgcv,
+	MuMIn,
+	lsmeans
+)

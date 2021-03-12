@@ -1,0 +1,119 @@
+---
+title: "Analyze Environment"
+author: "Jonathan Jupke"
+date: "10 3 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+```
+<!-- SETUP -->
+```{r setup2}
+source("R/setup.R")
+```
+
+
+```{r load data}
+data = readRDS("data/prep_data.rds")
+```
+
+```{r subset env}
+SubFactorsEnv<- data[,c(23:40)]
+DataAggEnv=as.data.frame(aggregate(SubFactorsEnv, by=list(data$Month, 
+                                                          data$Year, 
+                                                          data$Pond,
+                                                          data$Distance_lake,
+                                                          data$Position,
+                                                          data$MonthFromBeg,
+                                                          data$Season,
+                                                          data$Season_Year,
+                                                          data$Season_Year2,
+                                                          data$Treat), FUN=mean,na.rm = T)) %>% setDT
+setnames(DataAggEnv, old = c(1:10), new = c('Month','Year','Pond','Dist_Lake','Position',
+                                            'MonthFromBeg',"Season",'Season_Year','Season_Year2','Treat'))
+```
+
+```{r}
+EnvAgg<- DataAggEnv[,c(11:26, 28)]
+DataAggEnv_NA<-DataAggEnv[complete.cases(DataAggEnv), ]
+EnvAgg_NA<-EnvAgg[complete.cases(EnvAgg), ]
+ENVAgg_NA_s <- scale(EnvAgg_NA,scale=T,center=F)
+ENVAgg_NA_c <- scale(EnvAgg_NA,scale=F,center=T)
+ENVAgg_NA_sc <- scale(EnvAgg_NA,scale=T,center=T)
+```
+```{r}
+mv_env1 = mvabund(EnvAgg_NA)
+mv_env2 = mvabund(ENVAgg_NA_s)
+mv_env3 = mvabund(ENVAgg_NA_c)
+mv_env4 =  mvabund(ENVAgg_NA_sc)
+```
+```{r}
+# Not log transformed! 
+fit_uo_ga <- gllvm(y = mv_env4, family = gaussian())
+```
+```{r}
+plot(fit_uo_ga)
+```
+```{r}
+ordiplot.gllvm(fit_uo_ga, biplot = T, predict.region = T)
+```
+
+## With variables 
+
+```{r}
+DataAggEnv_NA %<>% as.data.frame()
+DataAggEnv_NA$Season_Year_Month<-do.call(paste,c(DataAggEnv_NA[c("Season_Year","Month")],sep="-"))
+DataAggEnv_NA_red<-subset(DataAggEnv_NA,Season_Year!="A_18")
+DataAggEnv_NA_red<-subset(DataAggEnv_NA_red,Season_Year_Month!="SP_19-3")
+DataAggEnv_NA_red<-subset(DataAggEnv_NA_red,Season_Year_Month!="SU_18-8")
+
+DataAggEnv_NA_red$Season_Year<-as.factor(DataAggEnv_NA_red$Season_Year)
+DataAggEnv_NA_red$Season_Year<-droplevels(DataAggEnv_NA_red$Season_Year)
+DataAggEnv_NA_red$Season_Year_Month<-as.factor(DataAggEnv_NA_red$Season_Year_Month)
+DataAggEnv_NA_red$Season_Year_Month<-droplevels(DataAggEnv_NA_red$Season_Year_Month)
+EnvAgg_NA_red<- DataAggEnv_NA_red[,c(11:26, 28)]  
+DataAggEnv_NA_red$Cat_Y<-ifelse(DataAggEnv_NA_red$MonthFromBeg<8,"1st","2nd")
+EnvAgg_NA_red<- DataAggEnv_NA_red[,c(11:26, 28)]                           
+LogEnvAgg_NA_red<-log10(EnvAgg_NA_red+1)
+
+taxa.cap1<- rda(LogEnvAgg_NA_red~ Pond + Cat_Y*MonthFromBeg + Season,
+                               scale.=TRUE, center=TRUE, data=DataAggEnv_NA_red)
+```
+
+No convergence with Gaussian. Correlated variables removed? 
+No residual checking with manylm - function defunct? 
+No other family in manyglm makes sense. 
+```{r fit co exp, echo = T}
+LogEnvAgg_NA_red2 = scale(LogEnvAgg_NA_red, scale = T, center = T)
+LogEnvAgg_NA_red2 = mvabund(LogEnvAgg_NA_red2)
+
+fit_many3 = gllvm(y = LogEnvAgg_NA_red2,
+                  X = DataAggEnv_NA_red,
+                  formula = ~ Pond + Cat_Y*MonthFromBeg, 
+                  family = "gaussian",
+                  num.lv = 1)
+```
+```{r}
+plot(fit_many3)
+```
+```{r}
+(res = summary(fit_many3))
+```
+```{r}
+walk(.x = 1:14,
+     .f = ~ coefplot.gllvm(fit_many3, which.Xcoef = .x))
+
+```
+
+```{r}
+fourth = fit_many3$params$Xcoef
+colort = colorRampPalette(c("blue", "white", "red"))
+a      = max( abs(fourth) )
+plot.4th = levelplot((as.matrix(fourth)), xlab = "Environmental Variables",
+                               ylab = "Species traits", col.regions = colort(100), cex.lab =1.3,
+                               at = seq(-a, a, length = 100), scales = list(x = list(rot = 45)))
+plot.4th
+```
+

@@ -1,0 +1,193 @@
+---
+title: "mzb analysis"
+author: "Jonathan Jupke"
+date: "10 3 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = here::here())
+library(knitr)
+library(kableExtra)
+```
+<!-- SETUP -->
+```{r setup2}
+source("R/setup.R")
+source("R/fun_coef_plot.R")
+```
+
+Load all data
+```{r load data}
+# saved TaxaAgg_NA_red from MACROINV script
+data_abu = readRDS("data/taxa_bio.rds")
+# saved EnvAgg_NA_red2 from MACROINV script 
+data_env = readRDS("data/taxa_env.rds")
+# both object just before rda in line 334 
+# data with predictors pond and time 
+data_exp = readRDS("data/taxa_exp.rds")
+```
+
+Scale and center environmental variables 
+```{r prepare env data }
+data_env %<>% scale(scale = TRUE, center =TRUE) %>% 
+	as.data.frame()
+```
+
+Remove collinear variables. 
+```{r}
+corrplot::corrplot.mixed(corr = cor(data_env), lower = "shade", upper = "number")
+# drop two variables 
+#data_env %<>% dplyr::select(!c("O2", "FL"))
+#corrplot::corrplot.mixed(corr = cor(data_env), lower = "shade", upper = "number")
+# remove rare taxa  
+data_pa = data_abu %>% 
+	mutate(row_id = rownames(data_abu)) %>% 
+	pivot_longer(cols = !(row_id)) %>% 
+	mutate(value2 = ifelse(value > 1, 1, value)) %>% 
+	pivot_wider(id_cols = row_id,
+	            values_from = value2,
+	            names_from = name) %>% 
+	dplyr::select(!row_id)
+
+count_occ = colSums(data_pa)
+rm_id = which(count_occ < 4)
+data_abu = data_abu[,-rm_id]
+# transform to mvabund format 
+data_abu %<>% mvabund()
+options(contrasts=c("contr.sum","contr.poly"))
+data_exp$Season %<>% as.factor()
+data_exp$Cat_Y %<>% as.factor()
+contrasts(data_exp$Pond) = "contr.sum"
+contrasts(data_exp$Season) = "contr.treatment"
+contrasts(data_exp$Cat_Y) = "contr.treatment"
+
+str(data_exp)
+```
+
+Fit negative binomial model. 
+```{r}
+mod_env = manyglm(data_abu ~ ., data = data_env)
+mod_exp = manyglm(data_abu ~ Pond+Season+DaysFromBeg*Cat_Y, data = data_exp)
+```
+
+```{r}
+walk(.x = 1:3, .f = ~ plot(mod_env, which = .x))
+```
+ 
+```{r}
+walk(.x = 1:3, .f = ~ plot(mod_exp, which = .x))
+```
+ 
+ 
+```{r eval = FALSE}
+
+mod_env_res = anova.manyglm(mod_env, 
+	     p.uni = "adjusted", 
+	     nBoot = 999)
+
+
+mod_exp_res = anova.manyglm(mod_exp, 
+	     p.uni = "adjusted", 
+	     nBoot = 999)
+
+saveRDS(mod_env_res, "data/many_nb_env.rds")
+saveRDS(mod_exp_res, "data/many_nb_exp.rds")
+```
+
+```{r echo = F}
+mod_env_res = readRDS("data/many_nb_env.rds")
+mod_exp_res = readRDS("data/many_nb_exp.rds")
+```
+
+```{r}
+mod_env_res$table 	       	
+```
+
+```{r}
+mod_exp_res$table 	       	
+```
+
+
+```{r eval = F}
+# uni.p holds the univariate p-values. The first row is 
+# the intercept which we do not care about. 
+# uni.p is a matrix. To make our life easier for the 
+# following steps we will convert it into a data frame
+plot_data_species = data.frame(mod1_res$uni.p[-1,])
+plot_data_species$variable = rownames(plot_data_species)
+# Just to make the plot prettier we will replace all the 
+# dots in variable and taxon names with spaces. 
+names(plot_data_species) %<>% 
+  str_replace_all(pattern = "\\.",
+                  replacement = "\\ ")
+# Here we pivot our data from the wide format (one column
+# per taxon) to the long format (one columns which holds 
+# the taxon and one which the p-value)
+pivot_id   = which(names(plot_data_species) == "variable")
+pivot_cols = names(plot_data_species)[-pivot_id]
+plot_data_species %<>% pivot_longer(cols = pivot_cols)
+                                    
+plot_data_species$variable %<>% 
+  str_replace_all(pattern = "\\.",
+                  replacement = "\\ ")
+plot_data_species %>% 
+        ggplot(aes(x = value, y = name)) + 
+        geom_point(aes(col = variable)) + 
+        geom_vline(xintercept = 0.05) + 
+  theme(text = element_text(size = 10))
+```
+
+```{r plot for env}
+plot_data = coef_plot(mod = mod_env)
+
+colort   = colorRampPalette(c("blue", "white", "red"))
+#a        = max(abs(plot_data))
+plot.tas = levelplot(
+  t(as.matrix(plot_data)),
+  ylab = "",
+  xlab  = "",
+  col.regions = colort(100),
+  at = seq(-2, 2, length = 100),
+  scales = list(x = list(rot = 45))
+)
+print(plot.tas)
+```
+
+```{r plot for env}
+plot_data = coef_plot(mod = mod_exp)
+
+colort   = colorRampPalette(c("blue", "white", "red"))
+#a        = max(abs(plot_data))
+plot.tas = levelplot(
+  t(as.matrix(plot_data)),
+  ylab = "",
+  xlab  = "",
+  col.regions = colort(100),
+  at = seq(-2, 2, length = 100),
+  scales = list(x = list(rot = 45))
+)
+print(plot.tas)
+
+```
+
+
+
+
+
+```{r eval = F}
+walk(1:11,~ coefplot.manyglm(mod1,which.Xcoef = .x, cex.ylab= .3))
+```
+```{r eval = F}
+#mod2 = gllvm(y = data4 , X = data5, formula = ~ ., family = "negative.binomial")
+#saveRDS(mod2, "data/gllvm_nb.rds")
+mod2 = readRDS("data/gllvm_nb.rds")
+walk(.x = c(1,2,3), .f = ~ plot(mod2, which = .x))
+```
+```{r eval = F}
+#mod3 = gllvm(y = data , X = data3, formula = ~ ., family = "ZIP")
+#saveRDS(mod3, "data/gllvm_zip.rds")
+mod3 = readRDS("data/gllvm_zip.rds")
+walk(.x = c(1,2,3), .f = ~ plot(mod3, which = .x))
+```
+
