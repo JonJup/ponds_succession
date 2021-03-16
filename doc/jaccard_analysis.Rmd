@@ -1,0 +1,114 @@
+---
+title: "compositional turnover"
+author: "Jonathan Jupke"
+date: "16.3.2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = here::here())
+library(knitr)
+library(kableExtra)
+```
+
+```{r setup2, echo = F}
+source("R/setup.R")
+source("R/fun_coef_plot.R")
+```
+
+```{r load data}
+data_abu = readRDS("data/taxa_bio.rds")
+data_exp = readRDS("data/taxa_exp.rds")
+```
+
+```{r prepare season data}
+data_exp %<>% 
+	mutate(season_year = paste0(Season, str_extract(Cat_Y, "[0-9]")))
+
+data_exp$season_year %<>% factor(levels = c("Spr1", "Sum1", "Win1", "Spr2", "Sum2", "Win2"))
+# complete ponds 
+#data_exp$Pond %>% table
+keep_pond = which(data_exp$Pond %in% paste0("P", c(1,2,4,5,6,7,8,9)))
+
+```
+
+Subset to complete ponds. 
+```{r subset complete}
+data_exp = data_exp[keep_pond, ]
+data_abu  = data_abu[keep_pond, ]
+```
+
+
+Remove rare taxa.
+```{r }
+data_pa = data_abu %>% 
+	mutate(row_id = rownames(data_abu)) %>% 
+	pivot_longer(cols = !(row_id)) %>% 
+	mutate(value2 = ifelse(value > 1, 1, value)) %>% 
+	pivot_wider(id_cols = row_id,
+	            values_from = value2,
+	            names_from = name) %>% 
+	dplyr::select(!row_id)
+
+count_occ = colSums(data_pa)
+rm_id = which(count_occ < 4)
+data_abu = data_abu[,-rm_id]
+```
+
+
+```{r warn = FALSE}
+
+out = expand.grid(pond = paste0("P", 1:12),
+                  season = 1:5,
+                  distance = 666)
+setDT(out)
+# loop over ponds 
+for (i in 1:uniqueN(data_exp$Pond)) {
+	for (j in seq_along(levels(data_exp$season_year))) {
+		if (j == length(levels(data_exp$season_year)))
+			next()
+		id1 = which(data_exp$season_year == levels(
+			data_exp$season_year)[j] &
+			data_exp$Pond == paste0("P", i))
+		id2 = which(data_exp$season_year == levels(
+			data_exp$season_year)[j + 1] &
+			data_exp$Pond == paste0("P", i))
+		
+		if (length(id1) == 0 | length(id2) == 0)
+			next()
+		d1 = data_abu[id1, ] %>% apply(2, mean)
+		d2 = data_abu[id2, ] %>% apply(2, mean)
+		d3 = bind_rows(d1, d2)
+		d4 = vegan::vegdist(d3, method = "bray")
+		out[season == j & pond == paste0("P", i), distance := d4]
+		
+	}
+	
+	
+	
+}
+out %<>% 
+	mutate(season = replace(season, season == 1, "SpSu1")) %>% 
+	mutate(season = replace(season, season == 2, "SuWi1")) %>% 
+	mutate(season = replace(season, season == 3, "WiSp1")) %>% 
+	mutate(season = replace(season, season == 4, "SpSu2")) %>% 
+	mutate(season = replace(season, season == 5, "SuWi2")) %>% 
+	mutate(season = factor(season, levels = c("SpSu1", "SuWi1", "WiSp1", "SpSu2", "SuWi2")))
+out %>%
+	filter(distance != 666) %>%
+	ggplot(aes(x = season, y = distance, col = pond, group = pond)) +
+	geom_point(alpha = 0.3) + 
+	geom_line(alpha = 0.3) + 
+	stat_summary(
+		geom = "line",
+		fun = "mean",
+		group = 1,
+		col = "black"
+	) + 
+	theme(panel.grid = element_blank())+ 
+	ylim(0,1)
+
+
+```
+

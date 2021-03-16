@@ -28,7 +28,7 @@ coef_plot = function(mod, x_se = 2) {
 		estimate = ifelse(significant, estimate, 0)
 	)
 	
-	# convert back ot wide format 
+	# convert back to wide format 
 	CO %>% 
 		dplyr::select(!c("SE", "lb","ub","significant_lb" ,"significant_ub", "significant")) %>% 
 		pivot_wider(id_cols = variable, 
@@ -36,7 +36,7 @@ coef_plot = function(mod, x_se = 2) {
 		            values_from = estimate) %>% 
 		as.data.frame() -> 
 		coef_plot 
-	rownames(coef_plot) = coef_plot$variable
+	#rownames(coef_plot) = coef_plot$variable
 	coef_plot %<>% filter(variable != "(Intercept)")
 	coef_plot %<>% dplyr::select(-variable)
 	
@@ -44,10 +44,14 @@ coef_plot = function(mod, x_se = 2) {
 	while (any (colSums(coef_plot) == 0)) {
 		col_id = which(colSums(coef_plot) == 0)
 		if (length(col_id)>0)
-			coef_plot = coef_plot[, -col_id]
-		row_id = which(rowSums(coef_plot) == 0)
-		if (length(row_id)>0)
-			coef_plot = coef_plot[-row_id, ]
+			coef_plot %<>% dplyr::select(!names(col_id)) %>% tibble()
+
 	}
+	setDT(coef_plot)
+	coef_plot = data.frame(coef_plot)
+	rownames(coef_plot) = variable_names[-1]
+	row_id = which(rowSums(coef_plot) == 0)
+	if (length(row_id)>0)
+		coef_plot = slice(coef_plot, -row_id) 
 	return(coef_plot)
 }

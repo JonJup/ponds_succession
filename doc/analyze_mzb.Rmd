@@ -1,5 +1,5 @@
 ---
-title: "mzb analysis"
+title: "Analyse Macroinvertebrates"
 author: "Jonathan Jupke"
 date: "10 3 2021"
 output: html_document
@@ -17,7 +17,7 @@ source("R/setup.R")
 source("R/fun_coef_plot.R")
 ```
 
-Load all data
+Load all data.
 ```{r load data}
 # saved TaxaAgg_NA_red from MACROINV script
 data_abu = readRDS("data/taxa_bio.rds")
@@ -28,19 +28,19 @@ data_env = readRDS("data/taxa_env.rds")
 data_exp = readRDS("data/taxa_exp.rds")
 ```
 
-Scale and center environmental variables 
+Scale and center environmental variables.
 ```{r prepare env data }
 data_env %<>% scale(scale = TRUE, center =TRUE) %>% 
 	as.data.frame()
 ```
 
-Remove collinear variables. 
+Are there any co-linear variables left?
 ```{r}
 corrplot::corrplot.mixed(corr = cor(data_env), lower = "shade", upper = "number")
-# drop two variables 
-#data_env %<>% dplyr::select(!c("O2", "FL"))
-#corrplot::corrplot.mixed(corr = cor(data_env), lower = "shade", upper = "number")
-# remove rare taxa  
+```
+
+Remove rare taxa.
+```{r}
 data_pa = data_abu %>% 
 	mutate(row_id = rownames(data_abu)) %>% 
 	pivot_longer(cols = !(row_id)) %>% 
@@ -53,94 +53,158 @@ data_pa = data_abu %>%
 count_occ = colSums(data_pa)
 rm_id = which(count_occ < 4)
 data_abu = data_abu[,-rm_id]
+```
+
+Next we need to prepare the data. This includes transforming the response to a mvabund object and defining the contrasts.   
+```{r}
 # transform to mvabund format 
 data_abu %<>% mvabund()
+# define contrasts 
 options(contrasts=c("contr.sum","contr.poly"))
 data_exp$Season %<>% as.factor()
 data_exp$Cat_Y %<>% as.factor()
 contrasts(data_exp$Pond) = "contr.sum"
 contrasts(data_exp$Season) = "contr.treatment"
 contrasts(data_exp$Cat_Y) = "contr.treatment"
-
-str(data_exp)
 ```
 
-Fit negative binomial model. 
+Create data sets for first and second year. 
 ```{r}
-mod_env = manyglm(data_abu ~ ., data = data_env)
-mod_exp = manyglm(data_abu ~ Pond+Season+DaysFromBeg*Cat_Y, data = data_exp)
+data_abu_y1 = data_abu[which(data_exp$Cat_Y == "1st"), ]
+data_abu_y2 = data_abu[which(data_exp$Cat_Y == "2nd"), ]
+data_env_y1 = data_env[which(data_exp$Cat_Y == "1st"), ]
+data_env_y2 = data_env[which(data_exp$Cat_Y == "2nd"), ]
+data_exp_y1 = filter(data_exp, Cat_Y == "1st")
+data_exp_y2 = filter(data_exp, Cat_Y == "2nd")
 ```
 
+
+# Fitting models 
+
+Fit negative binomial models. 
+```{r}
+# For both years
+mod_env = manyglm(data_abu ~ ., data = data_env)
+mod_exp = manyglm(data_abu ~ Pond + Season + DaysFromBeg * Cat_Y, data = data_exp)
+# For first year 
+mod_env_y1 = manyglm(data_abu_y1 ~ ., data = data_env_y1)
+mod_exp_y1 = manyglm(data_abu_y1 ~ Pond + Season + DaysFromBeg, data = data_exp_y1)
+# For second year 
+mod_env_y2 = manyglm(data_abu_y2 ~ ., data = data_env_y2)
+mod_exp_y2 = manyglm(data_abu_y2 ~ Pond + Season + DaysFromBeg, data = data_exp_y2)
+```
+
+Check residuals of **env** models.
 ```{r}
 walk(.x = 1:3, .f = ~ plot(mod_env, which = .x))
+walk(.x = 1:3, .f = ~ plot(mod_env_y1, which = .x))
+walk(.x = 1:3, .f = ~ plot(mod_env_y2, which = .x))
 ```
- 
+
+Check residuals of **exp** model.
+
 ```{r}
 walk(.x = 1:3, .f = ~ plot(mod_exp, which = .x))
+walk(.x = 1:3, .f = ~ plot(mod_exp_y1, which = .x))
+walk(.x = 1:3, .f = ~ plot(mod_exp_y2, which = .x))
 ```
- 
- 
-```{r eval = FALSE}
 
+```{r eval = F}
 mod_env_res = anova.manyglm(mod_env, 
 	     p.uni = "adjusted", 
 	     nBoot = 999)
-
-
 mod_exp_res = anova.manyglm(mod_exp, 
 	     p.uni = "adjusted", 
 	     nBoot = 999)
+mod_env_res_y1 = anova.manyglm(mod_env_y1,
+	           p.uni = "adjusted",
+	           nBoot = 999)
+mod_env_res_y2 = anova.manyglm(mod_env_y2,
+	           p.uni = "adjusted",
+	           nBoot = 999)
+mod_exp_res_y1 = anova.manyglm(mod_exp_y1,
+	           p.uni = "adjusted",
+	           nBoot = 999)
+mod_exp_res_y2 = anova.manyglm(mod_exp_y2,
+	           p.uni = "adjusted",
+	           nBoot = 999)
+```
 
+
+```{r eval = FALSE, echo = F}
+mod_env_res = anova.manyglm(mod_env, 
+	     p.uni = "adjusted", 
+	     nBoot = 999)
+mod_exp_res = anova.manyglm(mod_exp, 
+	     p.uni = "adjusted", 
+	     nBoot = 999)
+mod_env_res_y1 = anova.manyglm(mod_env_y1,
+	           p.uni = "adjusted",
+	           nBoot = 999)
+mod_env_res_y2 = anova.manyglm(mod_env_y2,
+	           p.uni = "adjusted",
+	           nBoot = 999)
+mod_exp_res_y1 = anova.manyglm(mod_exp_y1,
+	           p.uni = "adjusted",
+	           nBoot = 999)
+mod_exp_res_y2 = anova.manyglm(mod_exp_y2,
+	           p.uni = "adjusted",
+	           nBoot = 999)
 saveRDS(mod_env_res, "data/many_nb_env.rds")
 saveRDS(mod_exp_res, "data/many_nb_exp.rds")
+saveRDS(mod_env_res_y1, "data/many_nb_env_y1.rds")
+saveRDS(mod_exp_res_y1, "data/many_nb_exp_y1.rds")
+saveRDS(mod_env_res_y2, "data/many_nb_env_y2.rds")
+saveRDS(mod_exp_res_y2, "data/many_nb_exp_y2.rds")
 ```
 
 ```{r echo = F}
 mod_env_res = readRDS("data/many_nb_env.rds")
 mod_exp_res = readRDS("data/many_nb_exp.rds")
+mod_env_res_y1 = readRDS("data/many_nb_env_y1.rds")
+mod_exp_res_y1 = readRDS("data/many_nb_exp_y1.rds")
+mod_env_res_y2 = readRDS("data/many_nb_env_y2.rds")
+mod_exp_res_y2 = readRDS("data/many_nb_exp_y2.rds")
 ```
 
-```{r}
+## Results: Environmental covariates 
+
+### both years 
+```{r echo = F}
 mod_env_res$table 	       	
 ```
 
-```{r}
+### year 1
+```{r echo = F}
+mod_env_res_y1$table 	       	
+```
+
+### year 2
+```{r echo = F}
+mod_env_res_y2$table 	       	
+```
+
+## Results: Time and Pond 
+
+### both years
+```{r echo = F}
 mod_exp_res$table 	       	
 ```
-
-
-```{r eval = F}
-# uni.p holds the univariate p-values. The first row is 
-# the intercept which we do not care about. 
-# uni.p is a matrix. To make our life easier for the 
-# following steps we will convert it into a data frame
-plot_data_species = data.frame(mod1_res$uni.p[-1,])
-plot_data_species$variable = rownames(plot_data_species)
-# Just to make the plot prettier we will replace all the 
-# dots in variable and taxon names with spaces. 
-names(plot_data_species) %<>% 
-  str_replace_all(pattern = "\\.",
-                  replacement = "\\ ")
-# Here we pivot our data from the wide format (one column
-# per taxon) to the long format (one columns which holds 
-# the taxon and one which the p-value)
-pivot_id   = which(names(plot_data_species) == "variable")
-pivot_cols = names(plot_data_species)[-pivot_id]
-plot_data_species %<>% pivot_longer(cols = pivot_cols)
-                                    
-plot_data_species$variable %<>% 
-  str_replace_all(pattern = "\\.",
-                  replacement = "\\ ")
-plot_data_species %>% 
-        ggplot(aes(x = value, y = name)) + 
-        geom_point(aes(col = variable)) + 
-        geom_vline(xintercept = 0.05) + 
-  theme(text = element_text(size = 10))
+### year 1 
+```{r echo = F }
+mod_exp_res_y1$table 	       	
+```
+### year  2
+```{r echo = F}
+mod_exp_res_y2$table 	       	
 ```
 
-```{r plot for env}
-plot_data = coef_plot(mod = mod_env)
+## Coefficient plots: Environmental covariates 
 
+### Both years 
+
+```{r, echo = F}
+plot_data = coef_plot(mod = mod_env)
 colort   = colorRampPalette(c("blue", "white", "red"))
 #a        = max(abs(plot_data))
 plot.tas = levelplot(
@@ -154,7 +218,45 @@ plot.tas = levelplot(
 print(plot.tas)
 ```
 
-```{r plot for env}
+### Year 1 
+
+```{r , echo = F}
+plot_data = coef_plot(mod = mod_env_y1)
+colort   = colorRampPalette(c("blue", "white", "red"))
+#a        = max(abs(plot_data))
+plot.tas = levelplot(
+  t(as.matrix(plot_data)),
+  ylab = "",
+  xlab  = "",
+  col.regions = colort(100),
+  at = seq(-2, 2, length = 100),
+  scales = list(x = list(rot = 45))
+)
+print(plot.tas)
+```
+
+### Year 2 
+
+```{r, echo = F}
+plot_data = coef_plot(mod = mod_env_y2)
+colort   = colorRampPalette(c("blue", "white", "red"))
+#a        = max(abs(plot_data))
+plot.tas = levelplot(
+  t(as.matrix(plot_data)),
+  ylab = "",
+  xlab  = "",
+  col.regions = colort(100),
+  at = seq(-2, 2, length = 100),
+  scales = list(x = list(rot = 45))
+)
+print(plot.tas)
+```
+
+## Coefficient plots: Time and Pond 
+
+### Both years 
+
+```{r , echo = F}
 plot_data = coef_plot(mod = mod_exp)
 
 colort   = colorRampPalette(c("blue", "white", "red"))
@@ -168,12 +270,45 @@ plot.tas = levelplot(
   scales = list(x = list(rot = 45))
 )
 print(plot.tas)
-
 ```
 
+### Year 1 
 
+```{r, echo = F}
+plot_data = coef_plot(mod = mod_exp_y1)
 
+colort   = colorRampPalette(c("blue", "white", "red"))
+#a        = max(abs(plot_data))
+plot.tas = levelplot(
+  t(as.matrix(plot_data)),
+  ylab = "",
+  xlab  = "",
+  col.regions = colort(100),
+  at = seq(-2, 2, length = 100),
+  scales = list(x = list(rot = 45))
+)
+print(plot.tas)
+```
 
+### Year 2
+
+```{r, echo = F}
+plot_data = coef_plot(mod = mod_exp_y2)
+
+colort   = colorRampPalette(c("blue", "white", "red"))
+#a        = max(abs(plot_data))
+plot.tas = levelplot(
+  t(as.matrix(plot_data)),
+  ylab = "",
+  xlab  = "",
+  col.regions = colort(100),
+  at = seq(-2, 2, length = 100),
+  scales = list(x = list(rot = 45))
+)
+print(plot.tas)
+```
+
+<!-- old stuff --> 
 
 ```{r eval = F}
 walk(1:11,~ coefplot.manyglm(mod1,which.Xcoef = .x, cex.ylab= .3))
