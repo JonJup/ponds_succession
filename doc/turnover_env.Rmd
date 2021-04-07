@@ -1,7 +1,7 @@
 ---
-title: "compositional turnover"
+title: "environmental turnover"
 author: "Jonathan Jupke"
-date: "16.3.2021"
+date: "17.3.2021"
 output: html_document
 ---
 
@@ -18,15 +18,15 @@ source("R/fun_coef_plot.R")
 ```
 
 ```{r load data}
-data_abu = readRDS("data/taxa_bio.rds")
+data_env = readRDS("data/taxa_env.rds")
 data_exp = readRDS("data/taxa_exp.rds")
 ```
 
-```{r prepare season data}
+```{r prepare season data, echo = FALSE}
 data_exp %<>% 
 	mutate(season_year = paste0(Season, str_extract(Cat_Y, "[0-9]")))
 
-data_exp$season_year %<>% factor(levels = c("Win1", "Spr1", "Sum1", "Win2", "Spr2", "Sum2" ))
+data_exp$season_year %<>% factor(levels = c("Win1","Spr1", "Sum1",  "Win2","Spr2", "Sum2" ))
 # complete ponds 
 #data_exp$Pond %>% table
 keep_pond = which(data_exp$Pond %in% paste0("P", c(1,2,4,5,6,7,8,9)))
@@ -36,27 +36,12 @@ keep_pond = which(data_exp$Pond %in% paste0("P", c(1,2,4,5,6,7,8,9)))
 Subset to complete ponds. 
 ```{r subset complete}
 data_exp = data_exp[keep_pond, ]
-data_abu  = data_abu[keep_pond, ]
+data_env  = data_env[keep_pond, ]
+data_env = scale(data_env)
 ```
 
 
-Remove rare taxa.
-```{r }
-data_pa = data_abu %>% 
-	mutate(row_id = rownames(data_abu)) %>% 
-	pivot_longer(cols = !(row_id)) %>% 
-	mutate(value2 = ifelse(value > 1, 1, value)) %>% 
-	pivot_wider(id_cols = row_id,
-	            values_from = value2,
-	            names_from = name) %>% 
-	dplyr::select(!row_id)
-
-count_occ = colSums(data_pa)
-rm_id = which(count_occ < 4)
-data_abu = data_abu[,-rm_id]
-```
-
-## Stepwise change 
+## Stepwise turnover 
 ```{r warn = FALSE}
 
 out = expand.grid(pond = paste0("P", 1:12),
@@ -77,10 +62,21 @@ for (i in 1:uniqueN(data_exp$Pond)) {
 		
 		if (length(id1) == 0 | length(id2) == 0)
 			next()
-		d1 = data_abu[id1, ] %>% apply(2, mean)
-		d2 = data_abu[id2, ] %>% apply(2, mean)
+		
+		if ("matrix" %in% class(data_env[id1, ])){
+			d1 = data_env[id1, ] %>% apply(2, mean)	
+		} else {
+			d1 = data_env[id1, ]	
+		}
+		if ("matrix" %in% class(data_env[id2, ])){
+			d2 = data_env[id2, ] %>% apply(2, mean)	
+		} else {
+			d2 = data_env[id2, ]	
+		}
+		# d1 = data_env[id1, ] %>% apply(2, mean)
+		# d2 = data_env[id2, ] %>% apply(2, mean)
 		d3 = bind_rows(d1, d2)
-		d4 = vegan::vegdist(d3, method = "bray")
+		d4 = vegan::vegdist(d3, method = "euclidean")
 		out[season == j & pond == paste0("P", i), distance := d4]
 		
 	}
@@ -92,33 +88,38 @@ out %<>%
 	mutate(season = replace(season, season == 1, "WiSp1")) %>% 
 	mutate(season = replace(season, season == 2, "SpSu1")) %>% 
 	mutate(season = replace(season, season == 3, "SuWi1")) %>% 
-	mutate(season = replace(season, season == 4, "WiSp2")) %>%
+	mutate(season = replace(season, season == 4, "WiSp2")) %>% 
 	mutate(season = replace(season, season == 5, "SpSu2")) %>% 
-	 
-	mutate(season = factor(season, levels = c("WiSp1", "SpSu1", 
-			  "SuWi1", "WiSp2", 
-			  "SpSu2")))
-out %>%
-	filter(distance != 666) %>%
-	ggplot(aes(x = season, y = distance, col = pond, group = pond)) +
-	geom_point(alpha = 0.3) + 
-	geom_line(alpha = 0.3) + 
-	stat_summary(
-		geom = "line",
-		fun = "mean",
-		group = 1,
-		col = "black"
-	) + 
+	mutate(season = factor(season, levels = c("WiSp1", "SpSu1", "SuWi1", "WiSp2", "SpSu2")))
 
-	theme(panel.grid = element_blank())+ 
-	ylim(0,1)
+out_summary = out[distance != 666, mean(distance), by = season]
+
+
+plot = ggplot(data = filter(out,
+	 distance != 666),
+       aes(
+       	x = season,
+       	y = distance
+       )) +
+	geom_line (alpha = 0.7,  aes(col = pond, group = pond)) +
+	geom_point(alpha = 0.3,size = 2, aes(col = pond, group = pond)) +
+	stat_summary(geom="point",
+	             fun = mean,
+	             size = 2) + 
+	stat_summary(geom = "line",
+	             fun = mean,
+	             group = 1,
+	             size = 2) + 
+	theme(panel.grid = element_blank())
+#	geom_point(data = out_summary, aes(x = season, y = V1), size = 2) 
+	#geom_line(aes(group = season))
+	
 
 
 ```
 
-## Cumulative change 
-
-```{r warn = FALSE}
+## Cummulative change. 
+```{r warn = FALSE, echo = FALSE}
 
 out = expand.grid(pond = paste0("P", 1:12),
                   season = 1:5,
@@ -139,20 +140,20 @@ for (i in 1:uniqueN(data_exp$Pond)) {
 		if (length(id1) == 0 | length(id2) == 0)
 			next()
 		
-		if ("matrix" %in% class(data_abu[id1, ])){
-			d1 = data_abu[id1, ] %>% apply(2, mean)	
+		if ("matrix" %in% class(data_env[id1, ])){
+			d1 = data_env[id1, ] %>% apply(2, mean)	
 		} else {
-			d1 = data_abu[id1, ]	
+			d1 = data_env[id1, ]	
 		}
-		if ("matrix" %in% class(data_abu[id2, ])){
-			d2 = data_abu[id2, ] %>% apply(2, mean)	
+		if ("matrix" %in% class(data_env[id2, ])){
+			d2 = data_env[id2, ] %>% apply(2, mean)	
 		} else {
-			d2 = data_abu[id2, ]	
+			d2 = data_env[id2, ]	
 		}
-		d1 = data_abu[id1, ] %>% apply(2, mean)
-		d2 = data_abu[id2, ] %>% apply(2, mean)
+		# d1 = data_env[id1, ] %>% apply(2, mean)
+		# d2 = data_env[id2, ] %>% apply(2, mean)
 		d3 = bind_rows(d1, d2)
-		d4 = vegan::vegdist(d3, method = "bray")
+		d4 = vegan::vegdist(d3, method = "euclidean")
 		out[season == j & pond == paste0("P", i), distance := d4]
 		
 	}
@@ -161,39 +162,32 @@ for (i in 1:uniqueN(data_exp$Pond)) {
 	
 }
 out %<>% 
-	mutate(season = replace(season, season == 1, "WiSp1")) %>% 
-	mutate(season = replace(season, season == 2, "SpSu1")) %>% 
-	mutate(season = replace(season, season == 3, "SuWi1")) %>% 
-	mutate(season = replace(season, season == 4, "WiSp2")) %>% 
-	mutate(season = replace(season, season == 5, "SpSu2")) %>% 
-	mutate(season = factor(season, levels = c("WiSp1", "SpSu1", "SuWi1", "WiSp2", "SpSu2")))
+	mutate(season = replace(season, season == 1, "Spring1")) %>% 
+	mutate(season = replace(season, season == 2, "Summer1")) %>% 
+	mutate(season = replace(season, season == 3, "Winter2")) %>% 
+	mutate(season = replace(season, season == 4, "Spring2")) %>% 
+	mutate(season = replace(season, season == 5, "Summer2")) %>% 
+	mutate(season = factor(season, levels = c("Spring1", "Summer1", "Winter2", "Spring2", "Summer2")))
 
-out_summary = out[distance != 666, mean(distance), by = season]
-
-
-ggplot(data = filter(out,
+plot = ggplot(data = filter(out,
 	 distance != 666),
-       aes(
-       	x = season,
-       	y = distance,
-       	group = pond
-       )) +
-	geom_point(alpha = 0.3,size = 2, aes(col = pond)) +
-	geom_line (alpha = 0.7,  aes(col = pond))  + 
-	stat_summary(geom = "point", 
-	             fun = mean, 
-	             size = 2,
-	             group = 1) + 
-	stat_summary(geom = "line", 
-	             fun = mean, 
-	             size = 2, 
-	             group = 1)
-
+       aes(x = season,
+           y = distance)) +
+	geom_point(alpha = 0.3, size = 2, aes(col = pond, group = pond)) +
+	geom_line (alpha = 0.7,  aes(col = pond, group = pond)) +
+	stat_summary(geom = "point",
+	             fun = mean, size = 2) +
+	stat_summary(
+		geom = "line",
+		fun = mean,
+		size = 2,
+		group = 1
+	)
 ```
-# Dissimilartiy between ponts
 
-```{r warn = FALSE}
+## Differences among ponds. 
 
+```{r echo = F}
 sv_list = list()
 
 
@@ -203,16 +197,16 @@ for (i in seq_along(levels(data_exp$season_year))) {
 	if (length(id1) == 0){
 		next()	
 	}
-	d1 = data_abu[id1,] 
+	d1 = data_env[id1,] %>% data.frame() %>% setDT
 	d1$pond = data_exp[id1, "Pond"]
-	setDT(d1)
+	# aggregate observation in ponds 
 	d1 = d1[, lapply(.SD, mean), by = pond]
 	# remove empty ponds 
 	if (any(rowSums(d1[,-1]) == 0)){
 		zrid = which(rowSums(d1[,-1]) == 0)
 		d1 = d1[-zrid,]
 	}
-	d2 = vegan::vegdist(d1[,-1], method = "bray")
+	d2 = vegan::vegdist(d1[,-1], method = "euclidean")
 	d3 = as.matrix(d2)
 	d3[upper.tri(d3)] = 0
 	colnames(d3) = as.character(d1$pond)
@@ -242,7 +236,8 @@ out %<>%
 		     )) %>% 
 	mutate(pond3 = factor(pond3))
 
-out %>% 
+plot = 
+	out %>% 
 	ggplot(aes(x = season,
 	           y = distance, 
 	           col = pond3,
@@ -252,16 +247,20 @@ out %>%
 	stat_summary(geom = "point",
 	             fun = mean,
 	             col = "black",
-	             group = 1, 
+	             group = 1,
 	             size = 2) + 
 	stat_summary(geom = "line",
 	             fun = mean,
 	             col = "black", 
-	             group = 1, 
+	             group = 1,
 	             size = 2) +
-	theme(legend.position = "none", 
+	theme(#legend.position = "none", 
 	      panel.grid = element_blank())
 ```
+
+## Differences among ponds aggregated 
+
+## Differences among ponds. 
 
 ```{r echo = F}
 sv_list = list()
@@ -273,7 +272,7 @@ for (i in seq_along(levels(data_exp$season_year))) {
 	if (length(id1) == 0){
 		next()	
 	}
-	d1 = data_abu[id1,] %>% data.frame() %>% setDT
+	d1 = data_env[id1,] %>% data.frame() %>% setDT
 	d1$pond = data_exp[id1, "Pond"]
 	# aggregate observation in ponds 
 	d1 = d1[, lapply(.SD, mean), by = pond]
@@ -282,7 +281,7 @@ for (i in seq_along(levels(data_exp$season_year))) {
 		zrid = which(rowSums(d1[,-1]) == 0)
 		d1 = d1[-zrid,]
 	}
-	d2 = vegan::vegdist(d1[,-1], method = "bray")
+	d2 = vegan::vegdist(d1[,-1], method = "euclidean")
 	d3 = as.matrix(d2)
 	d3[upper.tri(d3)] = 0
 	colnames(d3) = as.character(d1$pond)
@@ -328,4 +327,3 @@ plot = out1 %>%
 
 
 ```
-

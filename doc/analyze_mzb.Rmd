@@ -308,21 +308,200 @@ plot.tas = levelplot(
 print(plot.tas)
 ```
 
-<!-- old stuff --> 
+# Mixed model 
+```{r}
+library(lme4)
+library(GLMMadaptive)
+library(DHARMa)
+```
+```{r}
+data_abu = as.data.frame(data_abu)
+data_mixed = bind_cols(data_abu, data_env, data_exp)
+data_mixed_y1 = filter(data_mixed, Cat_Y == "1st")
+data_mixed_y2 = filter(data_mixed, Cat_Y == "2nd")
+## -- are any species missing from year subsets? 
 
-```{r eval = F}
-walk(1:11,~ coefplot.manyglm(mod1,which.Xcoef = .x, cex.ylab= .3))
-```
-```{r eval = F}
-#mod2 = gllvm(y = data4 , X = data5, formula = ~ ., family = "negative.binomial")
-#saveRDS(mod2, "data/gllvm_nb.rds")
-mod2 = readRDS("data/gllvm_nb.rds")
-walk(.x = c(1,2,3), .f = ~ plot(mod2, which = .x))
-```
-```{r eval = F}
-#mod3 = gllvm(y = data , X = data3, formula = ~ ., family = "ZIP")
-#saveRDS(mod3, "data/gllvm_zip.rds")
-mod3 = readRDS("data/gllvm_zip.rds")
-walk(.x = c(1,2,3), .f = ~ plot(mod3, which = .x))
+any(colSums(data_mixed[,1:ncol(data_abu)])== 0) 
+any(colSums(data_mixed_y1[,1:ncol(data_abu)])== 0) 
+any(colSums(data_mixed_y2[,1:ncol(data_abu)])== 0) 
+
+## -- remove missing taxa 
+data_mixed_y1 = data_mixed_y1[, - which(colSums(data_mixed_y1[,1:ncol(data_abu)])== 0)]
+data_mixed_y2 = data_mixed_y2[, - which(colSums(data_mixed_y2[,1:ncol(data_abu)])== 0)]
 ```
 
+```{r fitting mixed models, eval = F}
+for (i in 1:ncol(data_abu)) {
+	if (i == 1) models = list()
+	models[[i]] = 
+	try(
+	glmer.nb(
+		data_mixed[, i] ~ 
+		Cond + O2  + NO3 
+		+ PO4 + SO4 + NH4   
+		+  (1 | Pond),
+		data = data_mixed
+	))
+}
+```
+
+```{r fitting mixed models for year 1, eval = F}
+## -- how many species are in data_mixed_y1? 
+#names(data_mixed_y1)
+## -- 16
+for (i in 1:16) {
+	if (i == 1) models_y1 = list()
+	
+	if (i != 14){
+		models_y1[[i]] = 
+	try(
+	glmer.nb(
+		data_mixed_y1[, i] ~ 
+		Cond + O2  + NO3 
+		+ PO4 + SO4 + NH4 
+		+  (1 | Pond),
+		data = data_mixed_y1
+	))	
+	}
+	
+}
+```
+
+```{r fitting mixed models for year 2, eval = F}
+## -- how many species are in data_mixed_y2? 
+names(data_mixed_y2)
+## -- 
+for (i in 1:23) {
+	if (i == 1) models_y2 = list()
+
+
+	models_y2[[i]] = 
+	try(
+	glmer.nb(
+		data_mixed_y2[, i] ~ 
+		Cond + O2  + NO3 
+		+ PO4 + SO4 + NH4  + Season 
+		+  (1 | Pond),
+		data = data_mixed_y2
+	))
+}
+```
+
+Check variance inflation factor and residuals.
+```{r vif mixed models both years, eval = F}
+for (i in seq_along(models)){
+	cond = class(models[[i]]) == "try-error"
+	if (cond) next 
+	print(paste(i, "-", round(max(vif(models[[i]])), 2)))
+}
+```
+
+Check residuals for both years. 
+```{r vif mixed models both years, eval = F}
+simulateResiduals(fittedModel = models[[13]], plot = T)
+# Problems with 1, 6, 12, 13, 14, 16, 17, 21, 22
+```
+
+Variance inflation factor for year 1.
+```{r vif mixed models year 1, eval = F}
+for (i in seq_along(models_y1)){
+	cond = class(models_y1[[i]]) == "try-error"
+	if (cond) next 
+	print(paste(i, "-", round(max(vif(models_y1[[i]])), 2)))
+}
+## -- closer look at high VIF
+vif(models_y1[[14]]) # Season, NH4, SO4, PO4, Cond are high  
+
+```
+
+
+```{r vif mixed models year 1, eval = F}
+simulateResiduals(fittedModel = models_y1[[13]], plot = T)
+```
+
+```{r vif mixed models year 2, eval = F}
+for (i in seq_along(models_y2)){
+	cond = class(models_y2[[i]]) == "try-error"
+	if (cond) next 
+	print(paste(i, "-", round(max(vif(models_y2[[i]])), 2)))
+}
+simulateResiduals(fittedModel = models_y2[[13]], plot = T)
+```
+
+
+```{r plot mixed models, eval = T}
+models = readRDS("../data/glmm_list.rds")
+p_vec = c(1, 6, 12, 13, 14, 15,16, 17, 21, 22)
+names(data_mixed)[p_vec]
+re_ls = list()
+fe_ls = list()
+for (i in seq_along(models)){
+	if (i %in% p_vec) next()
+	lp_dt = ranef(models[[i]])
+	lp_dt2 = fixef(models[[i]])
+	ind = summary(models[[i]])
+	
+	re_ls[[i]] = data.table(pond = rownames(lp_dt$Pond),
+		  sd   = lp_dt$Pond$`(Intercept)`,
+		  taxon = names(data_mixed)[i])
+	fe_ls[[i]] = data.table(variable = names(lp_dt2),
+		  coefficient   = lp_dt2,
+		  taxon = names(data_mixed)[i],
+		  p_value = ind$coefficients[,4])
+
+	if (i == length(models)) {
+		re_ls %<>%
+		rbindlist() %>%  
+		pivot_wider(
+			id_cols = taxon,
+			names_from = pond,
+			values_from = sd
+		)
+		
+	}	
+}
+fe_ls %<>% rbindlist()
+# holm's corrections 
+n_test = nrow(fe_ls)
+setorderv(fe_ls, "p_value")
+
+fe_ls[, denominator := n_test:1]
+fe_ls[, p_holm := p_value/denominator]
+fe_ls[,stat_sig := p_holm <= 0.05]
+fe_ls[stat_sig == TRUE,] %>%
+		 
+		pivot_wider(
+			id_cols = taxon,
+			names_from = variable,
+			values_from = coefficient,
+			values_fill = 0
+		) -> 
+	fe_ls2
+colort   = colorRampPalette(c("blue", "white", "red"))
+#a        = max(abs(plot_data))
+r_lvlpdata = as.data.frame(re_ls)
+f_lvlpdata = as.data.frame(fe_ls2)
+rownames(r_lvlpdata) = r_lvlpdata$taxon
+rownames(f_lvlpdata) = f_lvlpdata$taxon
+r_lvlpdata = r_lvlpdata[,-1]
+f_lvlpdata = f_lvlpdata[,-1]
+r_plot.tas = levelplot(
+  t(as.matrix(r_lvlpdata)),
+  ylab = "",
+  xlab  = "",
+  col.regions = colort(100),
+  at = seq(-2, 2, length = 100),
+  scales = list(x = list(rot = 45))
+)
+f_plot.tas = levelplot(
+  t(as.matrix(f_lvlpdata)),
+  ylab = "",
+  xlab  = "",
+  col.regions = colort(100),
+  at = seq(-2, 2, length = 100),
+  scales = list(x = list(rot = 45))
+)
+#cowplot::plot_grid(r_plot.tas, f_plot.tas)
+r_plot.tas
+f_plot.tas
+```
